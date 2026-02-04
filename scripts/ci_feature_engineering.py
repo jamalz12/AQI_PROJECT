@@ -2,7 +2,7 @@ import os
 import sys
 import pandas as pd
 from datetime import datetime, timedelta
-from postgres_feature_store import PostgresFeatureStore # Changed import
+from mongodb_feature_store import MongoDBFeatureStore # Changed import
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -10,38 +10,27 @@ logger = logging.getLogger(__name__)
 
 class CIFeatureEngineer:
     def __init__(self):
-        # PostgreSQL setup - retrieve connection details from environment variables
-        self.postgres_host = os.getenv('POSTGRES_HOST', 'localhost')
-        self.postgres_user = os.getenv('POSTGRES_USER', 'postgres')
-        self.postgres_password = os.getenv('POSTGRES_PASSWORD', '')
-        self.postgres_database = os.getenv('POSTGRES_DATABASE', 'aqi_data')
-        self.postgres_port = int(os.getenv('POSTGRES_PORT', 5432))
-
-        logger.info(f"Attempting to connect to PostgreSQL for feature engineering using database: {self.postgres_database} on {self.postgres_host}:{self.postgres_port}...")
-        self.feature_store = PostgresFeatureStore(
-            host=self.postgres_host,
-            user=self.postgres_user,
-            password=self.postgres_password,
-            database=self.postgres_database,
-            port=self.postgres_port
-        )
+        # MongoDB setup - retrieve connection string from environment variable
+        self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING', "mongodb://localhost:27017/")
+        logger.info(f"Attempting to connect to MongoDB for feature engineering using connection string: {self.mongodb_connection_string[:30]}...")
+        self.feature_store = MongoDBFeatureStore(connection_string=self.mongodb_connection_string)
         
-        if not self.feature_store.is_connected:
-            logger.error("❌ PostgreSQL connection failed during CIFeatureEngineer initialization. Feature engineering will likely fail.")
-            sys.exit(1)
+        if self.feature_store.collection is None:
+            logger.error("❌ MongoDB connection failed during CIFeatureEngineer initialization. Feature engineering will likely fail.")
+            sys.exit(1) # Exit early if MongoDB connection fails
 
     def load_raw_data(self) -> pd.DataFrame:
-        """Load recent raw data from PostgreSQL."""
-        logger.info("🔍 Loading recent raw data from PostgreSQL for feature engineering...")
+        """Load recent raw data from MongoDB."""
+        logger.info("🔍 Loading recent raw data from MongoDB for feature engineering...")
         try:
             df = self.feature_store.get_recent_data(hours=1) 
             if df.empty:
-                logger.warning("⚠️ No recent raw data found in PostgreSQL for feature engineering. Returning empty DataFrame.")
+                logger.warning("⚠️ No recent raw data found in MongoDB for feature engineering. Returning empty DataFrame.")
                 return pd.DataFrame()
-            logger.info(f"📊 Loaded {len(df)} recent raw records from PostgreSQL.")
+            logger.info(f"📊 Loaded {len(df)} recent raw records from MongoDB.")
             return df
         except Exception as e:
-            logger.error(f"❌ Error loading raw data from PostgreSQL: {e}", exc_info=True)
+            logger.error(f"❌ Error loading raw data from MongoDB: {e}", exc_info=True)
             sys.exit(1)
 
     def compute_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -76,7 +65,7 @@ class CIFeatureEngineer:
             logger.warning("⚠️ No features to store.")
             return False
 
-        logger.info(f"💾 Storing {len(df)} engineered features into PostgreSQL...")
+        logger.info(f"💾 Storing {len(df)} engineered features into MongoDB...")
         
         if 'city' not in df.columns:
             df['city'] = 'Karachi' 
@@ -84,12 +73,12 @@ class CIFeatureEngineer:
         try:
             success = self.feature_store.insert_data(df)
             if success:
-                logger.info("✅ Engineered features stored successfully in PostgreSQL.")
+                logger.info("✅ Engineered features stored successfully in MongoDB.")
             else:
-                logger.error("❌ Failed to store engineered features in PostgreSQL.")
+                logger.error("❌ Failed to store engineered features in MongoDB.")
             return success
         except Exception as e:
-            logger.error(f"❌ Error storing engineered features in PostgreSQL: {e}", exc_info=True)
+            logger.error(f"❌ Error storing engineered features in MongoDB: {e}", exc_info=True)
             sys.exit(1)
 
 def main():
