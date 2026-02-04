@@ -76,13 +76,10 @@ class MongoDBFeatureStore:
             logger.error(f"❌ Failed to connect to MongoDB: {e}")
             logger.info("💡 For local MongoDB, install MongoDB Community Server")
             logger.info("💡 For cloud MongoDB, use MongoDB Atlas connection string")
-            logger.info("📖 Falling back to CSV-based storage for now")
-
-            # Fallback to CSV-based storage
-            self._fallback_to_csv()
+            sys.exit(1) # Exit if MongoDB connection fails in CI/CD
         except Exception as e:
-            logger.error(f"❌ Unexpected error connecting to MongoDB: {e}")
-            self._fallback_to_csv()
+            logger.error(f"❌ Unexpected error connecting to MongoDB: {e}", exc_info=True)
+            sys.exit(1) # Exit on any unexpected connection error
 
     def _create_indexes(self):
         """Create indexes for better query performance"""

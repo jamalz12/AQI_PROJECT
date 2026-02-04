@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-CI/CD Data Collection Script for Karachi AQI
-This script is specifically designed for GitHub Actions workflow
-"""
-
 import os
 import sys
 import requests
@@ -11,7 +5,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 from mongodb_feature_store import MongoDBFeatureStore
+import logging
 
+# Configure logging for better output in CI/CD logs
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class CICIDataCollector:
     def __init__(self, api_key):
@@ -23,13 +21,18 @@ class CICIDataCollector:
         self.lat = 24.8607
         self.lon = 67.0011
 
-        # Ensure data directory exists
         # MongoDB setup
         self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING', "mongodb://localhost:27017/")
+        logger.info(f"Attempting to connect to MongoDB using connection string: {self.mongodb_connection_string[:30]}...") # Log first 30 chars for security
         self.feature_store = MongoDBFeatureStore(connection_string=self.mongodb_connection_string)
+        
+        if self.feature_store.collection is None:
+            logger.error("❌ MongoDB connection failed during CICIDataCollector initialization. Data collection will likely fail.")
+            sys.exit(1) # Exit early if MongoDB connection fails
 
     def get_current_weather(self):
         """Get current weather data for Karachi"""
+        logger.info("Attempting to get current weather data...")
         try:
             url = f"{self.base_url}/weather"
             params = {
@@ -40,9 +43,10 @@ class CICIDataCollector:
             }
 
             response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
 
             data = response.json()
+            logger.info("Successfully fetched weather data.")
 
             weather_data = {
                 'timestamp': datetime.now(),
@@ -59,12 +63,21 @@ class CICIDataCollector:
 
             return weather_data
 
+        except requests.exceptions.HTTPError as errh:
+            logger.error(f"❌ HTTP Error for weather data: {errh}")
+        except requests.exceptions.ConnectionError as errc:
+            logger.error(f"❌ Error Connecting for weather data: {errc}")
+        except requests.exceptions.Timeout as errt:
+            logger.error(f"❌ Timeout Error for weather data: {errt}")
+        except requests.exceptions.RequestException as err:
+            logger.error(f"❌ Something went wrong with the weather API request: {err}")
         except Exception as e:
-            print(f"❌ Error getting weather data: {e}")
-            return None
+            logger.error(f"❌ Unexpected error getting weather data: {e}", exc_info=True)
+        return None
 
     def get_air_quality(self):
         """Get air quality data for Karachi"""
+        logger.info("Attempting to get air quality data...")
         try:
             params = {
                 'lat': self.lat,
@@ -76,14 +89,11 @@ class CICIDataCollector:
             response.raise_for_status()
 
             data = response.json()
+            logger.info("Successfully fetched air quality data.")
 
             # AQI categories mapping
             aqi_categories = {
-                1: "Good",
-                2: "Fair",
-                3: "Moderate",
-                4: "Poor",
-                5: "Very Poor"
+                1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"
             }
 
             aqi_data = data['list'][0]
@@ -104,24 +114,32 @@ class CICIDataCollector:
 
             return pollution_data
 
+        except requests.exceptions.HTTPError as errh:
+            logger.error(f"❌ HTTP Error for air quality data: {errh}")
+        except requests.exceptions.ConnectionError as errc:
+            logger.error(f"❌ Error Connecting for air quality data: {errc}")
+        except requests.exceptions.Timeout as errt:
+            logger.error(f"❌ Timeout Error for air quality data: {errt}")
+        except requests.exceptions.RequestException as err:
+            logger.error(f"❌ Something went wrong with the air quality API request: {err}")
         except Exception as e:
-            print(f"❌ Error getting air quality data: {e}")
-            return None
+            logger.error(f"❌ Unexpected error getting air quality data: {e}", exc_info=True)
+        return None
 
     def collect_and_store_data(self):
-        """Collect both weather and air quality data and store in CSV"""
-        print("🌤️ Collecting current weather data for Karachi...")
+        """Collect both weather and air quality data and store in MongoDB"""
+        logger.info("🌤️ Collecting current weather data for Karachi...")
 
         # Get weather data
         weather_data = self.get_current_weather()
         if not weather_data:
-            print("❌ Failed to get weather data")
+            logger.error("❌ Failed to get weather data. Cannot proceed with collection.")
             return False
 
         # Get air quality data
         aqi_data = self.get_air_quality()
         if not aqi_data:
-            print("❌ Failed to get air quality data")
+            logger.error("❌ Failed to get air quality data. Cannot proceed with collection.")
             return False
 
         # Combine data
@@ -129,52 +147,48 @@ class CICIDataCollector:
 
         # Convert to DataFrame
         df = pd.DataFrame([complete_data])
+        logger.info(f"DataFrame created with {len(df)} record(s).")
 
         # The MongoDBFeatureStore handles data deduplication and storage.
-
-        # Insert into MongoDB
+        logger.info("Attempting to insert data into MongoDB...")
         insertion_success = self.feature_store.insert_data(df)
         if not insertion_success:
-            print("❌ Failed to insert data into MongoDB. Exiting.")
+            logger.error("❌ Failed to insert data into MongoDB. Exiting.")
             sys.exit(1)
 
-        print(f"✅ Successfully collected and stored data!")
-        print(f"   AQI: {complete_data['aqi']} ({complete_data['aqi_category']})")
-        print(f"   Temperature: {complete_data['temperature']}°C")
-        print(f"   Humidity: {complete_data['humidity']}%")
+        logger.info(f"✅ Successfully collected and stored data!")
+        logger.info(f"   AQI: {complete_data['aqi']} ({complete_data['aqi_category']})")
+        logger.info(f"   Temperature: {complete_data['temperature']}°C")
+        logger.info(f"   Humidity: {complete_data['humidity']}%")
         # Get updated statistics from MongoDB
         stats = self.feature_store.get_statistics()
         if stats and 'total_records' in stats:
-            print(f"   Total records in MongoDB: {stats['total_records']}")
+            logger.info(f"   Total records in MongoDB: {stats['total_records']}")
         else:
-            print("⚠️ Could not retrieve total records from MongoDB.")
+            logger.warning("⚠️ Could not retrieve total records from MongoDB.")
 
         return True
 
 def main():
     """Main function for CI/CD data collection"""
+    logger.info("🚀 Starting CI/CD data collection for Karachi AQI...")
+    
     api_key = os.getenv('OPENWEATHER_API_KEY')
 
-    # Temporary fallback for testing - REMOVE THIS IN PRODUCTION
     if not api_key:
-        print("⚠️  OPENWEATHER_API_KEY environment variable not set")
-        print("🔧 Using fallback API key for testing (REMOVE IN PRODUCTION)")
-        api_key = "da06b92d3139ce209b04dba2132ad4ce"  # Temporary fallback
-
-    if not api_key:
-        print("❌ No API key available - please set OPENWEATHER_API_KEY")
+        logger.error("❌ OPENWEATHER_API_KEY environment variable not set. Please configure GitHub Secret.")
         sys.exit(1)
 
-    print("🚀 Starting CI/CD data collection for Karachi AQI...")
-
+    logger.info("✅ OPENWEATHER_API_KEY is set.")
+    
     collector = CICIDataCollector(api_key)
     success = collector.collect_and_store_data()
 
     if success:
-        print("🎉 Data collection completed successfully!")
+        logger.info("🎉 Data collection completed successfully!")
         sys.exit(0)
     else:
-        print("💥 Data collection failed!")
+        logger.error("💥 Data collection failed!")
         sys.exit(1)
 
 if __name__ == "__main__":
