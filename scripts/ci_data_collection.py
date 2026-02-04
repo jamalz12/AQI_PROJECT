@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import json
-from mongodb_feature_store import MongoDBFeatureStore # Changed import
+from mongodb_feature_store import MongoDBFeatureStore
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,7 +20,12 @@ class CICIDataCollector:
         self.lon = 67.0011
 
         # MongoDB setup - retrieve connection string from environment variable
-        self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING', "mongodb://localhost:27017/")
+        self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING')
+        
+        if not self.mongodb_connection_string:
+            logger.error("❌ MONGODB_CONNECTION_STRING environment variable not set. Please configure GitHub Secret.")
+            sys.exit(1) # Exit immediately if connection string is missing
+
         logger.info(f"Attempting to connect to MongoDB using connection string: {self.mongodb_connection_string[:30]}...") # Log first 30 chars for security
         self.feature_store = MongoDBFeatureStore(connection_string=self.mongodb_connection_string)
         
@@ -112,13 +117,13 @@ class CICIDataCollector:
         except requests.exceptions.HTTPError as errh:
             logger.error(f"❌ HTTP Error for air quality data: {errh}")
         except requests.exceptions.ConnectionError as errc:
-            logger.error(f"❌ Error Connecting for air quality data: {errc}")
+            logger.error(f"❌ Error Connecting for weather data: {errc}")
         except requests.exceptions.Timeout as errt:
-            logger.error(f"❌ Timeout Error for air quality data: {errt}")
+            logger.error(f"❌ Timeout Error for weather data: {errt}")
         except requests.exceptions.RequestException as err:
-            logger.error(f"❌ Something went wrong with the air quality API request: {err}")
+            logger.error(f"❌ Something went wrong with the weather API request: {err}")
         except Exception as e:
-            logger.error(f"❌ Unexpected error getting air quality data: {e}", exc_info=True)
+            logger.error(f"❌ Unexpected error getting weather data: {e}", exc_info=True)
         return None
 
     def collect_and_store_data(self):
@@ -139,10 +144,10 @@ class CICIDataCollector:
         df = pd.DataFrame([complete_data])
         logger.info(f"DataFrame created with {len(df)} record(s).")
 
-        logger.info("Attempting to insert data into MongoDB...") # Updated log message
+        logger.info("Attempting to insert data into MongoDB...")
         insertion_success = self.feature_store.insert_data(df)
         if not insertion_success:
-            logger.error("❌ Failed to insert data into MongoDB. Exiting.") # Updated log message
+            logger.error("❌ Failed to insert data into MongoDB. Exiting.")
             sys.exit(1)
 
         logger.info(f"✅ Successfully collected and stored data!")
@@ -152,9 +157,9 @@ class CICIDataCollector:
         
         stats = self.feature_store.get_statistics()
         if stats and 'total_records' in stats:
-            logger.info(f"   Total records in MongoDB: {stats['total_records']}") # Updated log message
+            logger.info(f"   Total records in MongoDB: {stats['total_records']}")
         else:
-            logger.warning("⚠️ Could not retrieve total records from MongoDB.") # Updated log message
+            logger.warning("⚠️ Could not retrieve total records from MongoDB.")
 
         return True
 
