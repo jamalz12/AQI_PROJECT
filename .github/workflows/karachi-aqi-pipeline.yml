@@ -94,7 +94,7 @@ jobs:
 
             store = MongoDBFeatureStore(connection_string=connection_string)
             
-            if not store.collection:
+            if store.collection is None:
                 print('❌ MongoDB connection failed. Skipping data quality check.')
                 sys.exit(1)
 
