@@ -4,6 +4,7 @@ name: Karachi AQI CI/CD Pipeline
 # - Data collection: Every hour
 # - Model training: Daily at 2 AM UTC
 # - Manual trigger: Available via workflow_dispatch
+# This workflow processes raw data, trains models, and deploys.
 
 on:
   schedule:
@@ -11,17 +12,35 @@ on:
     - cron: '0 * * * *'
     # Run model training daily at 2 AM UTC
     - cron: '0 2 * * *'
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      run_data_collection:
+        description: 'Run Data Collection Job'
+        required: true
+        type: boolean
+        default: true
+      run_model_training:
+        description: 'Run Model Training Job'
+        required: true
+        type: boolean
+        default: false
+  workflow_call: # Allows this workflow to be called by other workflows
+    secrets:
+      OPENWEATHER_API_KEY:
+        required: true
+      MONGODB_CONNECTION_STRING:
+        required: true
   push:
     branches: [ main, master ]
     paths:
       - 'src/**'
       - 'karachi_aqi_app.py'
       - 'train_karachi_models.py'
+      - '.github/workflows/karachi-aqi-pipeline.yml' # Trigger on changes to this workflow itself
 
 jobs:
   data-collection:
-    if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_data_collection == 'true') || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
 
     steps:
@@ -33,6 +52,9 @@ jobs:
       with:
         python-version: '3.9'
 
+    - name: Set up PYTHONPATH
+      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV # Ensure modules are found
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -41,37 +63,33 @@ jobs:
     - name: Test secrets configuration
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Added MongoDB connection string
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
       run: |
         python scripts/test_secret.py
 
     - name: Run data collection
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Added MongoDB connection string
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
       run: |
         python scripts/ci_data_collection.py
 
     - name: Data quality check
       env:
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Added MongoDB connection string
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
       run: |
         python -c "
         import os
         import sys
         from datetime import datetime, timedelta
-        # Ensure mongodb_feature_store is accessible, might need to adjust PATH or PYTHONPATH
-        # For simplicity, assuming it's in the same directory or importable
-        try:
-            from mongodb_feature_store import MongoDBFeatureStore
-        except ImportError:
-            sys.path.append(os.getcwd()) # Add current directory to path if not found
-            from mongodb_feature_store import MongoDBFeatureStore
+        
+        # Add current directory to Python path
+        sys.path.append(os.getcwd()) 
+        from mongodb_feature_store import MongoDBFeatureStore
 
         try:
             store = MongoDBFeatureStore(connection_string=os.getenv('MONGODB_CONNECTION_STRING'))
             
-            # Check if MongoDB connection was successful, otherwise exit
             if store.collection is None:
                 print('❌ MongoDB connection failed. Skipping data quality check.')
                 sys.exit(1)
@@ -85,14 +103,10 @@ jobs:
 
             total_records = stats.get('total_records', 0)
             date_range = stats.get('date_range', {})
-            last_updated_dt = None # Initialize to None
+            last_updated_dt = None
 
             last_updated_str = date_range.get('end')
             if last_updated_str:
-                # Handle ISO format with or without 'Z' and ensure it's a datetime object
-                # MongoDB BSON datetime objects are often stored as UTC and can be represented with 'Z'
-                # isoformat() from Python's datetime adds a '+00:00' for UTC, which is compatible
-                # if it's already a datetime object, isoformat() will handle it.
                 if isinstance(last_updated_str, datetime):
                     last_updated_dt = last_updated_str
                 else:
@@ -100,7 +114,6 @@ jobs:
             
             recent_records_count = 0
             if last_updated_dt:
-                # Get data from last hour using the feature store
                 recent_data_df = store.get_recent_data(hours=1)
                 recent_records_count = len(recent_data_df)
 
@@ -120,9 +133,9 @@ jobs:
         "
 
   model-training:
-    if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_model_training == 'true') || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
-    needs: data-collection
+    needs: data-collection # Now only depends on data-collection within this workflow
 
     steps:
     - name: Checkout repository
@@ -132,6 +145,9 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+
+    - name: Set up PYTHONPATH
+      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV # Ensure modules are found
 
     - name: Install dependencies
       run: |
@@ -145,17 +161,18 @@ jobs:
         import os
         from pathlib import Path
         import time
+        import sys
+        
+        sys.path.append(os.getcwd()) # Ensure modules are found
 
         models_dir = Path('src/models/saved_models')
         needs_training = 'true'
 
-        # For manual runs, always train to ensure pipeline works
         event_name = os.getenv('GITHUB_EVENT_NAME', '')
         if event_name == 'workflow_dispatch':
             print('🤖 Manual workflow trigger detected - forcing training')
             needs_training = 'true'
         else:
-            # For scheduled runs, check if models are recent
             if models_dir.exists():
                 current_time = time.time()
                 recent_models = False
@@ -163,7 +180,7 @@ jobs:
                 for model_file in models_dir.glob('*karachi*.joblib'):
                     age_hours = (current_time - model_file.stat().st_mtime) / 3600
                     print(f'📊 Found model: {model_file.name} (age: {age_hours:.1f} hours)')
-                    if age_hours < 24:  # 24 hours
+                    if age_hours < 24:
                         recent_models = True
                         break
 
@@ -180,6 +197,8 @@ jobs:
 
     - name: Run model training
       if: steps.check_training.outputs.needs_training == 'true'
+      env:
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
       run: |
         python scripts/ci_model_training.py
 
@@ -207,7 +226,6 @@ jobs:
                     mae = metrics.get('test_mae', 'N/A')
                     print(f'   {model_name}: R² = {r2_score:.3f}, MAE = {mae}')
 
-                    # Determine best model
                     if model_name == 'random_forest':
                         print(f'   🏆 Best model: {model_name} (R² = {r2_score:.3f})')
         else:
@@ -227,7 +245,7 @@ jobs:
   deploy:
     if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    needs: [data-collection, model-training] # Updated needs to remove feature-engineering
+    needs: [data-collection, model-training]
 
     steps:
     - name: Checkout repository
@@ -235,19 +253,19 @@ jobs:
 
     - name: Deploy notification
       env:
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Added MongoDB connection string
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
       run: |
         echo "📊 Pipeline Status Report:"
         echo ""
 
-        # Check data collection status
         if [ "${{ needs.data-collection.result }}" == "success" ]; then
           echo "✅ Data collection: SUCCESS (Raw data stored in MongoDB)"
         else
           echo "❌ Data collection: FAILED"
         fi
 
-        # Check model training status
+        echo "✅ Feature engineering: Handled by separate workflow (Karachi AQI Feature Pipeline)"
+
         if [ "${{ needs.model-training.result }}" == "success" ]; then
           echo "✅ Model training: SUCCESS"
           echo "🚀 Models ready for production use"

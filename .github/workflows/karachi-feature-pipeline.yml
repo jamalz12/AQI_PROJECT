@@ -2,8 +2,8 @@ name: Karachi AQI Feature Pipeline
 
 # Automated feature engineering pipeline for Karachi AQI prediction system
 # - Runs hourly to process newly collected raw data
-    # - Stores engineered features in MongoDB
-    # This is a cosmetic change to trigger GitHub Actions re-indexing.
+# - Stores engineered features in MongoDB
+# This workflow processes raw data into features.
 
 on:
   schedule:
@@ -11,12 +11,17 @@ on:
     # (e.g., 5 minutes after the hour to allow data collection to finish)
     - cron: '5 * * * *'
   workflow_dispatch: # Allow manual triggering
+  workflow_call: # Allows this workflow to be called by other workflows
+    secrets:
+      MONGODB_CONNECTION_STRING:
+        required: true
   push:
     branches: [ main, master ]
     paths:
       - 'scripts/ci_feature_engineering.py'
       - 'mongodb_feature_store.py'
       - 'requirements-ci.txt'
+      - '.github/workflows/karachi-feature-pipeline.yml' # Trigger on changes to this workflow itself
 
 jobs:
   feature-engineering:
@@ -30,6 +35,9 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+
+    - name: Set up PYTHONPATH
+      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV # Ensure modules are found
 
     - name: Install dependencies
       run: |
