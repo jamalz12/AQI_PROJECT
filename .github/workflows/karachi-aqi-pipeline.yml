@@ -109,6 +109,7 @@ jobs:
             date_range = stats.get('date_range', {})
             last_updated_str = date_range.get('end')
             recent_records_count = 0
+            last_updated_dt = None # Initialize to None
 
             if last_updated_str:
                 if isinstance(last_updated_str, datetime):
@@ -131,7 +132,7 @@ jobs:
             print('✅ Data quality check passed for MongoDB')
 
         except Exception as e:
-            print(f'❌ Failed to perform MongoDB data quality check: {e}')
+            print('❌ Failed to perform MongoDB data quality check: {}'.format(e))
             sys.exit(1)
         "
 
