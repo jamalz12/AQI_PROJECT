@@ -28,15 +28,15 @@ on:
     secrets:
       OPENWEATHER_API_KEY:
         required: true
-      MYSQL_HOST:
+      POSTGRES_HOST: # Changed from MYSQL_HOST
         required: true
-      MYSQL_USER:
+      POSTGRES_USER: # Changed from MYSQL_USER
         required: true
-      MYSQL_PASSWORD:
+      POSTGRES_PASSWORD: # Changed from MYSQL_PASSWORD
         required: false
-      MYSQL_DATABASE:
+      POSTGRES_DATABASE: # Changed from MYSQL_DATABASE
         required: true
-      MYSQL_PORT:
+      POSTGRES_PORT: # Changed from MYSQL_PORT
         required: false
   push:
     branches: [ main, master ]
@@ -71,32 +71,32 @@ jobs:
     - name: Test secrets configuration
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-        MYSQL_USER: ${{ secrets.MYSQL_USER }}
-        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
+        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
+        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
       run: |
-        python scripts/test_secret.py # This script will need to be updated to check MySQL secrets
+        python scripts/test_secret.py # This script will need to be updated to check Postgres secrets
 
     - name: Run data collection
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-        MYSQL_USER: ${{ secrets.MYSQL_USER }}
-        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
+        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
+        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
       run: |
         python scripts/ci_data_collection.py
 
     - name: Data quality check
       env:
-        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-        MYSQL_USER: ${{ secrets.MYSQL_USER }}
-        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
+        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
+        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
       run: |
         python -c "
         import os
@@ -104,26 +104,26 @@ jobs:
         from datetime import datetime, timedelta
         
         sys.path.append(os.getcwd()) 
-        from mysql_feature_store import MySQLFeatureStore # Changed import
+        from postgres_feature_store import PostgresFeatureStore # Changed import
 
         try:
-            store = MySQLFeatureStore(
-                host=os.getenv('MYSQL_HOST'),
-                user=os.getenv('MYSQL_USER'),
-                password=os.getenv('MYSQL_PASSWORD'),
-                database=os.getenv('MYSQL_DATABASE'),
-                port=int(os.getenv('MYSQL_PORT', 3306))
+            store = PostgresFeatureStore(
+                host=os.getenv('POSTGRES_HOST'),
+                user=os.getenv('POSTGRES_USER'),
+                password=os.getenv('POSTGRES_PASSWORD'),
+                database=os.getenv('POSTGRES_DATABASE'),
+                port=int(os.getenv('POSTGRES_PORT', 5432))
             )
             
             if not store.is_connected:
-                print('❌ MySQL connection failed. Skipping data quality check.')
+                print('❌ PostgreSQL connection failed. Skipping data quality check.')
                 sys.exit(1)
 
             stats = store.get_statistics()
 
             print(f'📊 Data quality check:')
             if 'error' in stats:
-                print(f'❌ Error retrieving MySQL statistics: {stats['error']}')
+                print(f'❌ Error retrieving PostgreSQL statistics: {stats['error']}')
                 sys.exit(1)
 
             total_records = stats.get('total_records', 0)
@@ -141,18 +141,18 @@ jobs:
                 recent_data_df = store.get_recent_data(hours=1)
                 recent_records_count = len(recent_data_df)
 
-            print(f'   Total records in MySQL: {total_records}')
+            print(f'   Total records in PostgreSQL: {total_records}')
             print(f'   Recent records (last hour): {recent_records_count}')
             print(f'   Data range: {date_range.get('start')} to {date_range.get('end')}')
 
             if recent_records_count == 0:
-                print('⚠️  Warning: No data collected in the last hour in MySQL')
+                print('⚠️  Warning: No data collected in the last hour in PostgreSQL')
                 sys.exit(1)
 
-            print('✅ Data quality check passed for MySQL')
+            print('✅ Data quality check passed for PostgreSQL')
 
         except Exception as e:
-            print(f'❌ Failed to perform MySQL data quality check: {e}')
+            print(f'❌ Failed to perform PostgreSQL data quality check: {e}')
             sys.exit(1)
         "
 
@@ -222,11 +222,11 @@ jobs:
     - name: Run model training
       if: steps.check_training.outputs.needs_training == 'true'
       env:
-        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-        MYSQL_USER: ${{ secrets.MYSQL_USER }}
-        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
+        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
+        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
       run: |
         python scripts/ci_model_training.py
 
@@ -281,17 +281,17 @@ jobs:
 
     - name: Deploy notification
       env:
-        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-        MYSQL_USER: ${{ secrets.MYSQL_USER }}
-        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
+        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
+        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
       run: |
         echo "📊 Pipeline Status Report:"
         echo ""
 
         if [ "${{ needs.data-collection.result }}" == "success" ]; then
-          echo "✅ Data collection: SUCCESS (Raw data stored in MySQL)"
+          echo "✅ Data collection: SUCCESS (Raw data stored in PostgreSQL)" # Updated message
         else
           echo "❌ Data collection: FAILED"
         fi

@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import json
-from mysql_feature_store import MySQLFeatureStore  # Changed import
+from postgres_feature_store import PostgresFeatureStore # Changed import
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,24 +19,24 @@ class CICIDataCollector:
         self.lat = 24.8607
         self.lon = 67.0011
 
-        # MySQL setup - retrieve connection details from environment variables
-        self.mysql_host = os.getenv('MYSQL_HOST', 'localhost')
-        self.mysql_user = os.getenv('MYSQL_USER', 'root')
-        self.mysql_password = os.getenv('MYSQL_PASSWORD', '') # No password by default for local setup
-        self.mysql_database = os.getenv('MYSQL_DATABASE', 'aqi_data')
-        self.mysql_port = int(os.getenv('MYSQL_PORT', 3306))
+        # PostgreSQL setup - retrieve connection details from environment variables
+        self.postgres_host = os.getenv('POSTGRES_HOST', 'localhost')
+        self.postgres_user = os.getenv('POSTGRES_USER', 'postgres')
+        self.postgres_password = os.getenv('POSTGRES_PASSWORD', '')
+        self.postgres_database = os.getenv('POSTGRES_DATABASE', 'aqi_data')
+        self.postgres_port = int(os.getenv('POSTGRES_PORT', 5432))
 
-        logger.info(f"Attempting to connect to MySQL database: {self.mysql_database} on {self.mysql_host}:{self.mysql_port}...")
-        self.feature_store = MySQLFeatureStore(
-            host=self.mysql_host,
-            user=self.mysql_user,
-            password=self.mysql_password,
-            database=self.mysql_database,
-            port=self.mysql_port
+        logger.info(f"Attempting to connect to PostgreSQL database: {self.postgres_database} on {self.postgres_host}:{self.postgres_port}...")
+        self.feature_store = PostgresFeatureStore(
+            host=self.postgres_host,
+            user=self.postgres_user,
+            password=self.postgres_password,
+            database=self.postgres_database,
+            port=self.postgres_port
         )
         
         if not self.feature_store.is_connected:
-            logger.error("❌ MySQL connection failed during CICIDataCollector initialization. Data collection will likely fail.")
+            logger.error("❌ PostgreSQL connection failed during CICIDataCollector initialization. Data collection will likely fail.")
             sys.exit(1)
 
     def get_current_weather(self):
@@ -150,10 +150,10 @@ class CICIDataCollector:
         df = pd.DataFrame([complete_data])
         logger.info(f"DataFrame created with {len(df)} record(s).")
 
-        logger.info("Attempting to insert data into MySQL...")
+        logger.info("Attempting to insert data into PostgreSQL...")
         insertion_success = self.feature_store.insert_data(df)
         if not insertion_success:
-            logger.error("❌ Failed to insert data into MySQL. Exiting.")
+            logger.error("❌ Failed to insert data into PostgreSQL. Exiting.")
             sys.exit(1)
 
         logger.info(f"✅ Successfully collected and stored data!")
@@ -163,9 +163,9 @@ class CICIDataCollector:
         
         stats = self.feature_store.get_statistics()
         if stats and 'total_records' in stats:
-            logger.info(f"   Total records in MySQL: {stats['total_records']}")
+            logger.info(f"   Total records in PostgreSQL: {stats['total_records']}")
         else:
-            logger.warning("⚠️ Could not retrieve total records from MySQL.")
+            logger.warning("⚠️ Could not retrieve total records from PostgreSQL.")
 
         return True
 

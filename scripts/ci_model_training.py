@@ -11,7 +11,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
 import json
-from mysql_feature_store import MySQLFeatureStore # Changed import
+from postgres_feature_store import PostgresFeatureStore # Changed import
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,37 +22,37 @@ class CIModelTrainer:
         self.models_dir = 'src/models/saved_models'
         os.makedirs(self.models_dir, exist_ok=True)
         
-        # MySQL setup - retrieve connection details from environment variables
-        self.mysql_host = os.getenv('MYSQL_HOST', 'localhost')
-        self.mysql_user = os.getenv('MYSQL_USER', 'root')
-        self.mysql_password = os.getenv('MYSQL_PASSWORD', '') # No password by default for local setup
-        self.mysql_database = os.getenv('MYSQL_DATABASE', 'aqi_data')
-        self.mysql_port = int(os.getenv('MYSQL_PORT', 3306))
+        # PostgreSQL setup - retrieve connection details from environment variables
+        self.postgres_host = os.getenv('POSTGRES_HOST', 'localhost')
+        self.postgres_user = os.getenv('POSTGRES_USER', 'postgres')
+        self.postgres_password = os.getenv('POSTGRES_PASSWORD', '')
+        self.postgres_database = os.getenv('POSTGRES_DATABASE', 'aqi_data')
+        self.postgres_port = int(os.getenv('POSTGRES_PORT', 5432))
 
-        logger.info(f"Attempting to connect to MySQL for model training using database: {self.mysql_database} on {self.mysql_host}:{self.mysql_port}...")
-        self.feature_store = MySQLFeatureStore(
-            host=self.mysql_host,
-            user=self.mysql_user,
-            password=self.mysql_password,
-            database=self.mysql_database,
-            port=self.mysql_port
+        logger.info(f"Attempting to connect to PostgreSQL for model training using database: {self.postgres_database} on {self.postgres_host}:{self.postgres_port}...")
+        self.feature_store = PostgresFeatureStore(
+            host=self.postgres_host,
+            user=self.postgres_user,
+            password=self.postgres_password,
+            database=self.postgres_database,
+            port=self.postgres_port
         )
         
         if not self.feature_store.is_connected:
-            logger.error("❌ MySQL connection failed during CIModelTrainer initialization. Model training will likely fail.")
+            logger.error("❌ PostgreSQL connection failed during CIModelTrainer initialization. Model training will likely fail.")
             sys.exit(1)
 
     def load_data(self):
-        logger.info("🔍 Loading historical engineered features from MySQL...")
+        logger.info("🔍 Loading historical engineered features from PostgreSQL...")
         try:
             df = self.feature_store.get_historical_data(days=30)
             if df.empty:
-                logger.error("❌ No engineered features found in MySQL for training. Exiting.")
+                logger.error("❌ No engineered features found in PostgreSQL for training. Exiting.")
                 return None
-            logger.info(f"📊 Loaded {len(df)} engineered feature records from MySQL.")
+            logger.info(f"📊 Loaded {len(df)} engineered feature records from PostgreSQL.")
             return df
         except Exception as e:
-            logger.error(f"❌ Error loading historical data from MySQL: {e}", exc_info=True)
+            logger.error(f"❌ Error loading historical data from PostgreSQL: {e}", exc_info=True)
             sys.exit(1)
 
     def prepare_features(self, df):

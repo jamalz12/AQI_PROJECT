@@ -2,8 +2,7 @@ name: Karachi AQI Feature Pipeline
 
 # Automated feature engineering pipeline for Karachi AQI prediction system
 # - Runs hourly to process newly collected raw data
-# - Stores engineered features in MySQL
-# This workflow processes raw data into features.
+# - Stores engineered features in PostgreSQL # Updated comment
 # Cosmetic change to trigger workflow re-indexing
 
 on:
@@ -14,21 +13,21 @@ on:
   workflow_dispatch: # Allow manual triggering
   workflow_call:
     secrets:
-      MYSQL_HOST:
+      POSTGRES_HOST: # Changed from MYSQL_HOST
         required: true
-      MYSQL_USER:
+      POSTGRES_USER: # Changed from MYSQL_USER
         required: true
-      MYSQL_PASSWORD:
+      POSTGRES_PASSWORD: # Changed from MYSQL_PASSWORD
         required: false
-      MYSQL_DATABASE:
+      POSTGRES_DATABASE: # Changed from MYSQL_DATABASE
         required: true
-      MYSQL_PORT:
+      POSTGRES_PORT: # Changed from MYSQL_PORT
         required: false
   push:
     branches: [ main, master ]
     paths:
       - 'scripts/ci_feature_engineering.py'
-      - 'mysql_feature_store.py' # Changed from mongodb_feature_store.py
+      - 'postgres_feature_store.py' # Changed from mysql_feature_store.py
       - 'requirements-ci.txt'
       - '.github/workflows/karachi-feature-pipeline.yml'
 
@@ -55,10 +54,10 @@ jobs:
 
     - name: Run feature engineering
       env:
-        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-        MYSQL_USER: ${{ secrets.MYSQL_USER }}
-        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
+        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
+        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
       run: |
         python scripts/ci_feature_engineering.py
