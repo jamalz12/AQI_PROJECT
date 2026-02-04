@@ -23,7 +23,6 @@ on:
         required: true
       MYSQL_PORT:
         required: false
-        default: '3306'
   push:
     branches: [ main, master ]
     paths:
