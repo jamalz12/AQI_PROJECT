@@ -2,7 +2,7 @@ name: Karachi AQI Feature Pipeline
 
 # Automated feature engineering pipeline for Karachi AQI prediction system
 # - Runs hourly to process newly collected raw data
-# - Stores engineered features in PostgreSQL # Updated comment
+# - Stores engineered features in MongoDB # Updated comment
 # Cosmetic change to trigger workflow re-indexing
 
 on:
@@ -13,21 +13,13 @@ on:
   workflow_dispatch: # Allow manual triggering
   workflow_call:
     secrets:
-      POSTGRES_HOST: # Changed from MYSQL_HOST
+      MONGODB_CONNECTION_STRING: # Changed from POSTGRES_HOST/USER/PASSWORD/DATABASE/PORT
         required: true
-      POSTGRES_USER: # Changed from MYSQL_USER
-        required: true
-      POSTGRES_PASSWORD: # Changed from MYSQL_PASSWORD
-        required: false
-      POSTGRES_DATABASE: # Changed from MYSQL_DATABASE
-        required: true
-      POSTGRES_PORT: # Changed from MYSQL_PORT
-        required: false
   push:
     branches: [ main, master ]
     paths:
       - 'scripts/ci_feature_engineering.py'
-      - 'postgres_feature_store.py' # Changed from mysql_feature_store.py
+      - 'mongodb_feature_store.py' # Changed from postgres_feature_store.py
       - 'requirements-ci.txt'
       - '.github/workflows/karachi-feature-pipeline.yml'
 
@@ -54,10 +46,6 @@ jobs:
 
     - name: Run feature engineering
       env:
-        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
-        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
-        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Changed from POSTGRES_HOST/USER/PASSWORD/DATABASE/PORT
       run: |
         python scripts/ci_feature_engineering.py

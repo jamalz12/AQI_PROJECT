@@ -11,7 +11,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
 import json
-from postgres_feature_store import PostgresFeatureStore # Changed import
+from mongodb_feature_store import MongoDBFeatureStore # Changed import
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,37 +22,26 @@ class CIModelTrainer:
         self.models_dir = 'src/models/saved_models'
         os.makedirs(self.models_dir, exist_ok=True)
         
-        # PostgreSQL setup - retrieve connection details from environment variables
-        self.postgres_host = os.getenv('POSTGRES_HOST', 'localhost')
-        self.postgres_user = os.getenv('POSTGRES_USER', 'postgres')
-        self.postgres_password = os.getenv('POSTGRES_PASSWORD', '')
-        self.postgres_database = os.getenv('POSTGRES_DATABASE', 'aqi_data')
-        self.postgres_port = int(os.getenv('POSTGRES_PORT', 5432))
-
-        logger.info(f"Attempting to connect to PostgreSQL for model training using database: {self.postgres_database} on {self.postgres_host}:{self.postgres_port}...")
-        self.feature_store = PostgresFeatureStore(
-            host=self.postgres_host,
-            user=self.postgres_user,
-            password=self.postgres_password,
-            database=self.postgres_database,
-            port=self.postgres_port
-        )
+        # MongoDB setup - retrieve connection string from environment variable
+        self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING', "mongodb://localhost:27017/")
+        logger.info(f"Attempting to connect to MongoDB for model training using connection string: {self.mongodb_connection_string[:30]}...")
+        self.feature_store = MongoDBFeatureStore(connection_string=self.mongodb_connection_string)
         
-        if not self.feature_store.is_connected:
-            logger.error("❌ PostgreSQL connection failed during CIModelTrainer initialization. Model training will likely fail.")
+        if self.feature_store.collection is None:
+            logger.error("❌ MongoDB connection failed during CIModelTrainer initialization. Model training will likely fail.")
             sys.exit(1)
 
     def load_data(self):
-        logger.info("🔍 Loading historical engineered features from PostgreSQL...")
+        logger.info("🔍 Loading historical engineered features from MongoDB...") # Updated log message
         try:
             df = self.feature_store.get_historical_data(days=30)
             if df.empty:
-                logger.error("❌ No engineered features found in PostgreSQL for training. Exiting.")
+                logger.error("❌ No engineered features found in MongoDB for training. Exiting.") # Updated log message
                 return None
-            logger.info(f"📊 Loaded {len(df)} engineered feature records from PostgreSQL.")
+            logger.info(f"📊 Loaded {len(df)} engineered feature records from MongoDB.") # Updated log message
             return df
         except Exception as e:
-            logger.error(f"❌ Error loading historical data from PostgreSQL: {e}", exc_info=True)
+            logger.error(f"❌ Error loading historical data from MongoDB: {e}", exc_info=True) # Updated log message
             sys.exit(1)
 
     def prepare_features(self, df):
