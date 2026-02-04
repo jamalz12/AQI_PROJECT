@@ -122,7 +122,7 @@ jobs:
 
             print(f'   Total records in MongoDB: {total_records}')
             print(f'   Recent records (last hour): {recent_records_count}')
-            print(f'   Data range: {date_range.get('start')} to {date_range.get('end')}')
+            print(f'   Data range: {date_range.get("start")} to {date_range.get("end")}')
 
             if recent_records_count == 0:
                 print('⚠️  Warning: No data collected in the last hour in MongoDB')
