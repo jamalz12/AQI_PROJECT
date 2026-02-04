@@ -4,6 +4,7 @@ name: Karachi AQI Feature Pipeline
 # - Runs hourly to process newly collected raw data
 # - Stores engineered features in MySQL
 # This workflow processes raw data into features.
+# Cosmetic change to trigger workflow re-indexing
 
 on:
   schedule:
