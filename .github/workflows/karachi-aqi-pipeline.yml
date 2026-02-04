@@ -102,7 +102,7 @@ jobs:
 
             print(f'📊 Data quality check:')
             if 'error' in stats:
-                print(f'❌ Error retrieving MongoDB statistics: {stats['error']}')
+                print(f'❌ Error retrieving MongoDB statistics: {stats[\'error\']}')
                 sys.exit(1)
 
             total_records = stats.get('total_records', 0)
