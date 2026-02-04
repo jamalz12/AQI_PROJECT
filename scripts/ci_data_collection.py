@@ -139,7 +139,7 @@ class CICIDataCollector:
             logger.error("❌ Failed to get air quality data. Cannot proceed with collection.")
             return False
 
-        complete_data = {**weather_data, **aqi_data}
+        complete_data = {**weather_data, **aqi_data, "city": "Karachi"}
 
         df = pd.DataFrame([complete_data])
         logger.info(f"DataFrame created with {len(df)} record(s).")
