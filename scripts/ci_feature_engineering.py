@@ -2,7 +2,7 @@ import os
 import sys
 import pandas as pd
 from datetime import datetime, timedelta
-from mongodb_feature_store import MongoDBFeatureStore
+from mysql_feature_store import MySQLFeatureStore # Changed import
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -10,49 +10,50 @@ logger = logging.getLogger(__name__)
 
 class CIFeatureEngineer:
     def __init__(self):
-        self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING', "mongodb://localhost:27017/")
-        logger.info(f"Attempting to connect to MongoDB for feature engineering using connection string: {self.mongodb_connection_string[:30]}...")
-        self.feature_store = MongoDBFeatureStore(connection_string=self.mongodb_connection_string)
+        # MySQL setup - retrieve connection details from environment variables
+        self.mysql_host = os.getenv('MYSQL_HOST', 'localhost')
+        self.mysql_user = os.getenv('MYSQL_USER', 'root')
+        self.mysql_password = os.getenv('MYSQL_PASSWORD', '') # No password by default for local setup
+        self.mysql_database = os.getenv('MYSQL_DATABASE', 'aqi_data')
+        self.mysql_port = int(os.getenv('MYSQL_PORT', 3306))
+
+        logger.info(f"Attempting to connect to MySQL for feature engineering using database: {self.mysql_database} on {self.mysql_host}:{self.mysql_port}...")
+        self.feature_store = MySQLFeatureStore(
+            host=self.mysql_host,
+            user=self.mysql_user,
+            password=self.mysql_password,
+            database=self.mysql_database,
+            port=self.mysql_port
+        )
         
-        if self.feature_store.collection is None:
-            logger.error("❌ MongoDB connection failed during CIFeatureEngineer initialization. Feature engineering will likely fail.")
-            sys.exit(1) # Exit early if MongoDB connection fails
+        if not self.feature_store.is_connected:
+            logger.error("❌ MySQL connection failed during CIFeatureEngineer initialization. Feature engineering will likely fail.")
+            sys.exit(1)
 
     def load_raw_data(self) -> pd.DataFrame:
-        """Load recent raw data from MongoDB."""
-        logger.info("🔍 Loading recent raw data from MongoDB for feature engineering...")
+        """Load recent raw data from MySQL."""
+        logger.info("🔍 Loading recent raw data from MySQL for feature engineering...")
         try:
-            # Load data collected in the last hour, as per the pipeline schedule
             df = self.feature_store.get_recent_data(hours=1) 
             if df.empty:
-                logger.warning("⚠️ No recent raw data found in MongoDB for feature engineering. Returning empty DataFrame.")
+                logger.warning("⚠️ No recent raw data found in MySQL for feature engineering. Returning empty DataFrame.")
                 return pd.DataFrame()
-            logger.info(f"📊 Loaded {len(df)} recent raw records from MongoDB.")
+            logger.info(f"📊 Loaded {len(df)} recent raw records from MySQL.")
             return df
         except Exception as e:
-            logger.error(f"❌ Error loading raw data from MongoDB: {e}", exc_info=True)
-            sys.exit(1) # Exit on critical data loading failure
+            logger.error(f"❌ Error loading raw data from MySQL: {e}", exc_info=True)
+            sys.exit(1)
 
     def compute_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Compute time-based and derived features.
-        
-        Args:
-            df: DataFrame with raw AQI and weather data.
-            
-        Returns:
-            DataFrame with computed features.
-        """
         if df.empty:
             logger.warning("⚠️ No data in DataFrame to compute features from. Returning empty DataFrame.")
             return pd.DataFrame()
 
         try:
-            df = df.copy() # Avoid SettingWithCopyWarning
+            df = df.copy() 
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df = df.sort_values('timestamp')
 
-            # Time-based features
             df['hour'] = df['timestamp'].dt.hour
             df['day_of_week'] = df['timestamp'].dt.dayofweek
             df['day_of_year'] = df['timestamp'].dt.dayofyear
@@ -60,7 +61,6 @@ class CIFeatureEngineer:
             df['quarter'] = df['timestamp'].dt.quarter
             df['year'] = df['timestamp'].dt.year
 
-            # Derived features
             df['aqi_change_rate'] = df['aqi'].diff().fillna(0) 
             df['aqi_ma_3h'] = df['aqi'].rolling(window=3, min_periods=1).mean().fillna(df['aqi'])
             df['temp_humidity_interaction'] = df['temperature'] * df['humidity']
@@ -69,15 +69,14 @@ class CIFeatureEngineer:
             return df
         except Exception as e:
             logger.error(f"❌ Error computing features: {e}", exc_info=True)
-            sys.exit(1) # Exit on critical feature computation failure
+            sys.exit(1)
 
     def store_features(self, df: pd.DataFrame) -> bool:
-        """Store engineered features back into MongoDB."""
         if df.empty:
             logger.warning("⚠️ No features to store.")
             return False
 
-        logger.info(f"💾 Storing {len(df)} engineered features into MongoDB...")
+        logger.info(f"💾 Storing {len(df)} engineered features into MySQL...")
         
         if 'city' not in df.columns:
             df['city'] = 'Karachi' 
@@ -85,13 +84,13 @@ class CIFeatureEngineer:
         try:
             success = self.feature_store.insert_data(df)
             if success:
-                logger.info("✅ Engineered features stored successfully in MongoDB.")
+                logger.info("✅ Engineered features stored successfully in MySQL.")
             else:
-                logger.error("❌ Failed to store engineered features in MongoDB.")
+                logger.error("❌ Failed to store engineered features in MySQL.")
             return success
         except Exception as e:
-            logger.error(f"❌ Error storing engineered features in MongoDB: {e}", exc_info=True)
-            sys.exit(1) # Exit on critical feature storage failure
+            logger.error(f"❌ Error storing engineered features in MySQL: {e}", exc_info=True)
+            sys.exit(1)
 
 def main():
     logger.info("🚀 Starting CI/CD feature engineering pipeline...")

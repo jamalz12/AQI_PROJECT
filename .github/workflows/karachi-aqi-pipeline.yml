@@ -24,19 +24,28 @@ on:
         required: true
         type: boolean
         default: false
-  workflow_call: # Allows this workflow to be called by other workflows
+  workflow_call:
     secrets:
       OPENWEATHER_API_KEY:
         required: true
-      MONGODB_CONNECTION_STRING:
+      MYSQL_HOST:
         required: true
+      MYSQL_USER:
+        required: true
+      MYSQL_PASSWORD:
+        required: false
+      MYSQL_DATABASE:
+        required: true
+      MYSQL_PORT:
+        required: false
+        default: '3306'
   push:
     branches: [ main, master ]
     paths:
       - 'src/**'
       - 'karachi_aqi_app.py'
       - 'train_karachi_models.py'
-      - '.github/workflows/karachi-aqi-pipeline.yml' # Trigger on changes to this workflow itself
+      - '.github/workflows/karachi-aqi-pipeline.yml'
 
 jobs:
   data-collection:
@@ -53,7 +62,7 @@ jobs:
         python-version: '3.9'
 
     - name: Set up PYTHONPATH
-      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV # Ensure modules are found
+      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
     - name: Install dependencies
       run: |
@@ -63,79 +72,95 @@ jobs:
     - name: Test secrets configuration
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+        MYSQL_USER: ${{ secrets.MYSQL_USER }}
+        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
       run: |
-        python scripts/test_secret.py
+        python scripts/test_secret.py # This script will need to be updated to check MySQL secrets
 
     - name: Run data collection
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+        MYSQL_USER: ${{ secrets.MYSQL_USER }}
+        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
       run: |
         python scripts/ci_data_collection.py
 
     - name: Data quality check
       env:
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+        MYSQL_USER: ${{ secrets.MYSQL_USER }}
+        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
       run: |
         python -c "
         import os
         import sys
         from datetime import datetime, timedelta
         
-        # Add current directory to Python path
         sys.path.append(os.getcwd()) 
-        from mongodb_feature_store import MongoDBFeatureStore
+        from mysql_feature_store import MySQLFeatureStore # Changed import
 
         try:
-            store = MongoDBFeatureStore(connection_string=os.getenv('MONGODB_CONNECTION_STRING'))
+            store = MySQLFeatureStore(
+                host=os.getenv('MYSQL_HOST'),
+                user=os.getenv('MYSQL_USER'),
+                password=os.getenv('MYSQL_PASSWORD'),
+                database=os.getenv('MYSQL_DATABASE'),
+                port=int(os.getenv('MYSQL_PORT', 3306))
+            )
             
-            if store.collection is None:
-                print('❌ MongoDB connection failed. Skipping data quality check.')
+            if not store.is_connected:
+                print('❌ MySQL connection failed. Skipping data quality check.')
                 sys.exit(1)
 
             stats = store.get_statistics()
 
             print(f'📊 Data quality check:')
             if 'error' in stats:
-                print(f'❌ Error retrieving MongoDB statistics: {stats['error']}')
+                print(f'❌ Error retrieving MySQL statistics: {stats['error']}')
                 sys.exit(1)
 
             total_records = stats.get('total_records', 0)
             date_range = stats.get('date_range', {})
-            last_updated_dt = None
-
             last_updated_str = date_range.get('end')
+            recent_records_count = 0
+
             if last_updated_str:
                 if isinstance(last_updated_str, datetime):
                     last_updated_dt = last_updated_str
                 else:
                     last_updated_dt = datetime.fromisoformat(last_updated_str.replace('Z', '+00:00') if 'Z' in last_updated_str else last_updated_str)
             
-            recent_records_count = 0
             if last_updated_dt:
                 recent_data_df = store.get_recent_data(hours=1)
                 recent_records_count = len(recent_data_df)
 
-            print(f'   Total records in MongoDB: {total_records}')
+            print(f'   Total records in MySQL: {total_records}')
             print(f'   Recent records (last hour): {recent_records_count}')
             print(f'   Data range: {date_range.get('start')} to {date_range.get('end')}')
 
             if recent_records_count == 0:
-                print('⚠️  Warning: No data collected in the last hour in MongoDB')
+                print('⚠️  Warning: No data collected in the last hour in MySQL')
                 sys.exit(1)
 
-            print('✅ Data quality check passed for MongoDB')
+            print('✅ Data quality check passed for MySQL')
 
         except Exception as e:
-            print(f'❌ Failed to perform MongoDB data quality check: {e}')
+            print(f'❌ Failed to perform MySQL data quality check: {e}')
             sys.exit(1)
         "
 
   model-training:
     if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_model_training == 'true') || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
-    needs: data-collection # Now only depends on data-collection within this workflow
+    needs: data-collection
 
     steps:
     - name: Checkout repository
@@ -147,7 +172,7 @@ jobs:
         python-version: '3.9'
 
     - name: Set up PYTHONPATH
-      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV # Ensure modules are found
+      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
     - name: Install dependencies
       run: |
@@ -163,7 +188,7 @@ jobs:
         import time
         import sys
         
-        sys.path.append(os.getcwd()) # Ensure modules are found
+        sys.path.append(os.getcwd()) 
 
         models_dir = Path('src/models/saved_models')
         needs_training = 'true'
@@ -198,7 +223,11 @@ jobs:
     - name: Run model training
       if: steps.check_training.outputs.needs_training == 'true'
       env:
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+        MYSQL_USER: ${{ secrets.MYSQL_USER }}
+        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
       run: |
         python scripts/ci_model_training.py
 
@@ -253,13 +282,17 @@ jobs:
 
     - name: Deploy notification
       env:
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+        MYSQL_USER: ${{ secrets.MYSQL_USER }}
+        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
       run: |
         echo "📊 Pipeline Status Report:"
         echo ""
 
         if [ "${{ needs.data-collection.result }}" == "success" ]; then
-          echo "✅ Data collection: SUCCESS (Raw data stored in MongoDB)"
+          echo "✅ Data collection: SUCCESS (Raw data stored in MySQL)"
         else
           echo "❌ Data collection: FAILED"
         fi

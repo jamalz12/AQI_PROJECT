@@ -2,7 +2,7 @@ name: Karachi AQI Feature Pipeline
 
 # Automated feature engineering pipeline for Karachi AQI prediction system
 # - Runs hourly to process newly collected raw data
-# - Stores engineered features in MongoDB
+# - Stores engineered features in MySQL
 # This workflow processes raw data into features.
 
 on:
@@ -11,17 +11,26 @@ on:
     # (e.g., 5 minutes after the hour to allow data collection to finish)
     - cron: '5 * * * *'
   workflow_dispatch: # Allow manual triggering
-  workflow_call: # Allows this workflow to be called by other workflows
+  workflow_call:
     secrets:
-      MONGODB_CONNECTION_STRING:
+      MYSQL_HOST:
         required: true
+      MYSQL_USER:
+        required: true
+      MYSQL_PASSWORD:
+        required: false
+      MYSQL_DATABASE:
+        required: true
+      MYSQL_PORT:
+        required: false
+        default: '3306'
   push:
     branches: [ main, master ]
     paths:
       - 'scripts/ci_feature_engineering.py'
-      - 'mongodb_feature_store.py'
+      - 'mysql_feature_store.py' # Changed from mongodb_feature_store.py
       - 'requirements-ci.txt'
-      - '.github/workflows/karachi-feature-pipeline.yml' # Trigger on changes to this workflow itself
+      - '.github/workflows/karachi-feature-pipeline.yml'
 
 jobs:
   feature-engineering:
@@ -37,7 +46,7 @@ jobs:
         python-version: '3.9'
 
     - name: Set up PYTHONPATH
-      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV # Ensure modules are found
+      run: echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
     - name: Install dependencies
       run: |
@@ -46,6 +55,10 @@ jobs:
 
     - name: Run feature engineering
       env:
-        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+        MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+        MYSQL_USER: ${{ secrets.MYSQL_USER }}
+        MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
       run: |
         python scripts/ci_feature_engineering.py

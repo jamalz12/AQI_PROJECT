@@ -4,10 +4,9 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import json
-from mongodb_feature_store import MongoDBFeatureStore
+from mysql_feature_store import MySQLFeatureStore  # Changed import
 import logging
 
-# Configure logging for better output in CI/CD logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -17,21 +16,30 @@ class CICIDataCollector:
         self.base_url = "http://api.openweathermap.org/data/2.5"
         self.air_quality_url = "http://api.openweathermap.org/data/2.5/air_pollution"
 
-        # Karachi coordinates
         self.lat = 24.8607
         self.lon = 67.0011
 
-        # MongoDB setup
-        self.mongodb_connection_string = os.getenv('MONGODB_CONNECTION_STRING', "mongodb://localhost:27017/")
-        logger.info(f"Attempting to connect to MongoDB using connection string: {self.mongodb_connection_string[:30]}...") # Log first 30 chars for security
-        self.feature_store = MongoDBFeatureStore(connection_string=self.mongodb_connection_string)
+        # MySQL setup - retrieve connection details from environment variables
+        self.mysql_host = os.getenv('MYSQL_HOST', 'localhost')
+        self.mysql_user = os.getenv('MYSQL_USER', 'root')
+        self.mysql_password = os.getenv('MYSQL_PASSWORD', '') # No password by default for local setup
+        self.mysql_database = os.getenv('MYSQL_DATABASE', 'aqi_data')
+        self.mysql_port = int(os.getenv('MYSQL_PORT', 3306))
+
+        logger.info(f"Attempting to connect to MySQL database: {self.mysql_database} on {self.mysql_host}:{self.mysql_port}...")
+        self.feature_store = MySQLFeatureStore(
+            host=self.mysql_host,
+            user=self.mysql_user,
+            password=self.mysql_password,
+            database=self.mysql_database,
+            port=self.mysql_port
+        )
         
-        if self.feature_store.collection is None:
-            logger.error("❌ MongoDB connection failed during CICIDataCollector initialization. Data collection will likely fail.")
-            sys.exit(1) # Exit early if MongoDB connection fails
+        if not self.feature_store.is_connected:
+            logger.error("❌ MySQL connection failed during CICIDataCollector initialization. Data collection will likely fail.")
+            sys.exit(1)
 
     def get_current_weather(self):
-        """Get current weather data for Karachi"""
         logger.info("Attempting to get current weather data...")
         try:
             url = f"{self.base_url}/weather"
@@ -43,7 +51,7 @@ class CICIDataCollector:
             }
 
             response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+            response.raise_for_status()
 
             data = response.json()
             logger.info("Successfully fetched weather data.")
@@ -76,7 +84,6 @@ class CICIDataCollector:
         return None
 
     def get_air_quality(self):
-        """Get air quality data for Karachi"""
         logger.info("Attempting to get air quality data...")
         try:
             params = {
@@ -91,7 +98,6 @@ class CICIDataCollector:
             data = response.json()
             logger.info("Successfully fetched air quality data.")
 
-            # AQI categories mapping
             aqi_categories = {
                 1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"
             }
@@ -127,50 +133,43 @@ class CICIDataCollector:
         return None
 
     def collect_and_store_data(self):
-        """Collect both weather and air quality data and store in MongoDB"""
         logger.info("🌤️ Collecting current weather data for Karachi...")
 
-        # Get weather data
         weather_data = self.get_current_weather()
         if not weather_data:
             logger.error("❌ Failed to get weather data. Cannot proceed with collection.")
             return False
 
-        # Get air quality data
         aqi_data = self.get_air_quality()
         if not aqi_data:
             logger.error("❌ Failed to get air quality data. Cannot proceed with collection.")
             return False
 
-        # Combine data
         complete_data = {**weather_data, **aqi_data}
 
-        # Convert to DataFrame
         df = pd.DataFrame([complete_data])
         logger.info(f"DataFrame created with {len(df)} record(s).")
 
-        # The MongoDBFeatureStore handles data deduplication and storage.
-        logger.info("Attempting to insert data into MongoDB...")
+        logger.info("Attempting to insert data into MySQL...")
         insertion_success = self.feature_store.insert_data(df)
         if not insertion_success:
-            logger.error("❌ Failed to insert data into MongoDB. Exiting.")
+            logger.error("❌ Failed to insert data into MySQL. Exiting.")
             sys.exit(1)
 
         logger.info(f"✅ Successfully collected and stored data!")
         logger.info(f"   AQI: {complete_data['aqi']} ({complete_data['aqi_category']})")
         logger.info(f"   Temperature: {complete_data['temperature']}°C")
         logger.info(f"   Humidity: {complete_data['humidity']}%")
-        # Get updated statistics from MongoDB
+        
         stats = self.feature_store.get_statistics()
         if stats and 'total_records' in stats:
-            logger.info(f"   Total records in MongoDB: {stats['total_records']}")
+            logger.info(f"   Total records in MySQL: {stats['total_records']}")
         else:
-            logger.warning("⚠️ Could not retrieve total records from MongoDB.")
+            logger.warning("⚠️ Could not retrieve total records from MySQL.")
 
         return True
 
 def main():
-    """Main function for CI/CD data collection"""
     logger.info("🚀 Starting CI/CD data collection for Karachi AQI...")
     
     api_key = os.getenv('OPENWEATHER_API_KEY')
