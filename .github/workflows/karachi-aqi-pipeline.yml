@@ -28,16 +28,8 @@ on:
     secrets:
       OPENWEATHER_API_KEY:
         required: true
-      POSTGRES_HOST: # Changed from MYSQL_HOST
+      MONGODB_CONNECTION_STRING: # Changed to MONGODB_CONNECTION_STRING
         required: true
-      POSTGRES_USER: # Changed from MYSQL_USER
-        required: true
-      POSTGRES_PASSWORD: # Changed from MYSQL_PASSWORD
-        required: false
-      POSTGRES_DATABASE: # Changed from MYSQL_DATABASE
-        required: true
-      POSTGRES_PORT: # Changed from MYSQL_PORT
-        required: false
   push:
     branches: [ main, master ]
     paths:
@@ -71,32 +63,20 @@ jobs:
     - name: Test secrets configuration
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
-        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
-        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Changed to MONGODB_CONNECTION_STRING
       run: |
-        python scripts/test_secret.py # This script will need to be updated to check Postgres secrets
+        python scripts/test_secret.py # This script will need to be updated to check MongoDB secrets
 
     - name: Run data collection
       env:
         OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
-        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
-        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Changed to MONGODB_CONNECTION_STRING
       run: |
         python scripts/ci_data_collection.py
 
     - name: Data quality check
       env:
-        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
-        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
-        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Changed to MONGODB_CONNECTION_STRING
       run: |
         python -c "
         import os
@@ -104,26 +84,25 @@ jobs:
         from datetime import datetime, timedelta
         
         sys.path.append(os.getcwd()) 
-        from postgres_feature_store import PostgresFeatureStore # Changed import
+        from mongodb_feature_store import MongoDBFeatureStore # Changed import
 
         try:
-            store = PostgresFeatureStore(
-                host=os.getenv('POSTGRES_HOST'),
-                user=os.getenv('POSTGRES_USER'),
-                password=os.getenv('POSTGRES_PASSWORD'),
-                database=os.getenv('POSTGRES_DATABASE'),
-                port=int(os.getenv('POSTGRES_PORT', 5432))
-            )
+            connection_string = os.getenv('MONGODB_CONNECTION_STRING')
+            if not connection_string:
+                print('❌ MONGODB_CONNECTION_STRING environment variable not set. Skipping data quality check.')
+                sys.exit(1)
+
+            store = MongoDBFeatureStore(connection_string=connection_string)
             
-            if not store.is_connected:
-                print('❌ PostgreSQL connection failed. Skipping data quality check.')
+            if not store.collection:
+                print('❌ MongoDB connection failed. Skipping data quality check.')
                 sys.exit(1)
 
             stats = store.get_statistics()
 
             print(f'📊 Data quality check:')
             if 'error' in stats:
-                print(f'❌ Error retrieving PostgreSQL statistics: {stats['error']}')
+                print(f'❌ Error retrieving MongoDB statistics: {stats['error']}')
                 sys.exit(1)
 
             total_records = stats.get('total_records', 0)
@@ -141,23 +120,23 @@ jobs:
                 recent_data_df = store.get_recent_data(hours=1)
                 recent_records_count = len(recent_data_df)
 
-            print(f'   Total records in PostgreSQL: {total_records}')
+            print(f'   Total records in MongoDB: {total_records}')
             print(f'   Recent records (last hour): {recent_records_count}')
             print(f'   Data range: {date_range.get('start')} to {date_range.get('end')}')
 
             if recent_records_count == 0:
-                print('⚠️  Warning: No data collected in the last hour in PostgreSQL')
+                print('⚠️  Warning: No data collected in the last hour in MongoDB')
                 sys.exit(1)
 
-            print('✅ Data quality check passed for PostgreSQL')
+            print('✅ Data quality check passed for MongoDB')
 
         except Exception as e:
-            print(f'❌ Failed to perform PostgreSQL data quality check: {e}')
+            print(f'❌ Failed to perform MongoDB data quality check: {e}')
             sys.exit(1)
         "
 
   model-training:
-    if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_model_training == 'true') || github.event_name == 'workflow_call'
+    if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_model_training == 'true') || github.event.name == 'workflow_call'
     runs-on: ubuntu-latest
     needs: data-collection
 
@@ -222,11 +201,7 @@ jobs:
     - name: Run model training
       if: steps.check_training.outputs.needs_training == 'true'
       env:
-        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
-        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
-        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Changed to MONGODB_CONNECTION_STRING
       run: |
         python scripts/ci_model_training.py
 
@@ -281,17 +256,13 @@ jobs:
 
     - name: Deploy notification
       env:
-        POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }} # Changed from MYSQL_HOST
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }} # Changed from MYSQL_USER
-        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }} # Changed from MYSQL_PASSWORD
-        POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }} # Changed from MYSQL_DATABASE
-        POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }} # Changed from MYSQL_PORT
+        MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }} # Changed to MONGODB_CONNECTION_STRING
       run: |
         echo "📊 Pipeline Status Report:"
         echo ""
 
         if [ "${{ needs.data-collection.result }}" == "success" ]; then
-          echo "✅ Data collection: SUCCESS (Raw data stored in PostgreSQL)" # Updated message
+          echo "✅ Data collection: SUCCESS (Raw data stored in MongoDB)" # Updated message
         else
           echo "❌ Data collection: FAILED"
         fi
